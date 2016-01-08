@@ -1,54 +1,46 @@
 package com.cloudera.spark.hbase
 
-import org.apache.spark.api.java.JavaSparkContext
 import org.apache.hadoop.conf.Configuration
-import org.apache.spark.api.java.JavaRDD
-import org.apache.spark.api.java.function.VoidFunction
-import org.apache.spark.api.java.function.Function
-import org.apache.hadoop.hbase.client.HConnection
-import org.apache.spark.streaming.api.java.JavaDStream
-import org.apache.spark.api.java.function.FlatMapFunction
-import scala.collection.JavaConversions._
-import org.apache.hadoop.hbase.client.Put
-import org.apache.hadoop.hbase.client.Increment
-import org.apache.hadoop.hbase.client.Delete
-import org.apache.hadoop.hbase.client.Get
-import org.apache.hadoop.hbase.client.Result
-import org.apache.hadoop.hbase.client.Scan
+import org.apache.hadoop.hbase.client.{Connection, Delete, Get, Increment, Put, Result, Scan}
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable
+import org.apache.spark.api.java.function.{FlatMapFunction, Function, VoidFunction}
+import org.apache.spark.api.java.{JavaRDD, JavaSparkContext}
+import org.apache.spark.streaming.api.java.JavaDStream
+
+import scala.collection.JavaConversions._
 import scala.reflect.ClassTag
 
 class JavaHBaseContext(@transient jsc: JavaSparkContext,
   @transient config: Configuration) extends Serializable {
   val hbc = new HBaseContext(jsc.sc, config)
-  
+
   /**
    * A simple enrichment of the traditional Spark javaRdd foreachPartition.
    * This function differs from the original in that it offers the
-   * developer access to a already connected HConnection object
+   * developer access to a already connected Connection object
    *
-   * Note: Do not close the HConnection object.  All HConnection
+   * Note: Do not close the Connection object.  All Connection
    * management is handled outside this method
    *
    * @param javaRdd Original javaRdd with data to iterate over
    * @param f       Function to be given a iterator to iterate through
-   *                the RDD values and a HConnection object to interact
+   *                the RDD values and a Connection object to interact
    *                with HBase
    */
   def foreachPartition[T](javaRdd: JavaRDD[T],
-    f: VoidFunction[(java.util.Iterator[T], HConnection)] ) = {
+    f: VoidFunction[(java.util.Iterator[T], Connection)] ) = {
     
-    hbc.foreachPartition(javaRdd.rdd, 
-        (iterator:Iterator[T], hConnection) => 
-          { f.call((iterator, hConnection))})
+    hbc.foreachPartition(javaRdd.rdd,
+        (iterator:Iterator[T], connection) =>
+          { f.call((iterator, connection))})
   } 
   
   def foreach[T](javaRdd: JavaRDD[T],
-    f: VoidFunction[(T, HConnection)] ) = {
+    f: VoidFunction[(T, Connection)] ) = {
     
     hbc.foreachPartition(javaRdd.rdd, 
-        (iterator:Iterator[T], hConnection) =>
-          iterator.foreach(a => f.call((a, hConnection))))
+        (iterator:Iterator[T], connection) =>
+          iterator.foreach(a => f.call((a, connection))))
           
           //{ f.call((iterator, hConnection))})
   }
@@ -56,19 +48,19 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
   /**
    * A simple enrichment of the traditional Spark Streaming dStream foreach
    * This function differs from the original in that it offers the
-   * developer access to a already connected HConnection object
+   * developer access to a already connected Connection object
    *
-   * Note: Do not close the HConnection object.  All HConnection
+   * Note: Do not close the Connection object.  All HConnection
    * management is handled outside this method
    *
    * @param javaDstream Original DStream with data to iterate over
    * @param f           Function to be given a iterator to iterate through
-   *                    the JavaDStream values and a HConnection object to
+   *                    the JavaDStream values and a Connection object to
    *                    interact with HBase
    */
   def foreachRDD[T](javaDstream: JavaDStream[T],
-    f: VoidFunction[(Iterator[T], HConnection)]) = {
-    hbc.foreachRDD(javaDstream.dstream, (it:Iterator[T], hc: HConnection) => f.call(it, hc))
+    f: VoidFunction[(Iterator[T], Connection)]) = {
+    hbc.foreachRDD(javaDstream.dstream, (it:Iterator[T], hc: Connection) => f.call(it, hc))
   }
   
     /**
@@ -76,7 +68,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * This function differs from the original in that it offers the
    * developer access to a already connected HConnection object
    *
-   * Note: Do not close the HConnection object.  All HConnection
+   * Note: Do not close the Connection object.  All Connection
    * management is handled outside this method
    *
    * Note: Make sure to partition correctly to avoid memory issue when
@@ -84,22 +76,22 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    *
    * @param javaRdd Original JavaRdd with data to iterate over
    * @param mp      Function to be given a iterator to iterate through
-   *                the RDD values and a HConnection object to interact
+   *                the RDD values and a Connection object to interact
    *                with HBase
    * @return        Returns a new RDD generated by the user definition
    *                function just like normal mapPartition
    */
   def mapPartition[T,R](javaRdd: JavaRDD[T],
-    mp: FlatMapFunction[(java.util.Iterator[T], HConnection),R] ): JavaRDD[R] = {
+    mp: FlatMapFunction[(java.util.Iterator[T], Connection),R] ): JavaRDD[R] = {
      
-    def fn = (x: Iterator[T], hc: HConnection) => 
+    def fn = (x: Iterator[T], hc: Connection) =>
       asScalaIterator(
           mp.call((asJavaIterator(x), hc)).iterator()
         )
     
     JavaRDD.fromRDD(hbc.mapPartition(javaRdd.rdd, 
-        (iterator:Iterator[T], hConnection:HConnection) => 
-          fn(iterator, hConnection))(fakeClassTag[R]))(fakeClassTag[R])
+        (iterator:Iterator[T], connection:Connection) =>
+          fn(iterator, connection))(fakeClassTag[R]))(fakeClassTag[R])
   }  
   
     /**
@@ -107,9 +99,9 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * mapPartition.
    *
    * This function differs from the original in that it offers the
-   * developer access to a already connected HConnection object
+   * developer access to a already connected Connection object
    *
-   * Note: Do not close the HConnection object.  All HConnection
+   * Note: Do not close the Connection object.  All Connection
    * management is handled outside this method
    *
    * Note: Make sure to partition correctly to avoid memory issue when
@@ -117,15 +109,15 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    *
    * @param javaDstream Original JavaDStream with data to iterate over
    * @param mp          Function to be given a iterator to iterate through
-   *                    the JavaDStream values and a HConnection object to
+   *                    the JavaDStream values and a Connection object to
    *                    interact with HBase
    * @return            Returns a new JavaDStream generated by the user
    *                    definition function just like normal mapPartition
    */
   def streamMap[T, U](javaDstream: JavaDStream[T],
-      mp: Function[(Iterator[T], HConnection), Iterator[U]]): JavaDStream[U] = {
+      mp: Function[(Iterator[T], Connection), Iterator[U]]): JavaDStream[U] = {
     JavaDStream.fromDStream(hbc.streamMap(javaDstream.dstream, 
-        (it: Iterator[T], hc: HConnection) => 
+        (it: Iterator[T], hc: Connection) =>
          mp.call(it, hc) )(fakeClassTag[U]))(fakeClassTag[U])
   }
   
@@ -134,7 +126,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    *
    * It allow addition support for a user to take JavaRDD
    * and generate puts and send them to HBase.
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaRdd   Original JavaRDD with data to iterate over
@@ -150,6 +142,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
     
     hbc.bulkPut(javaRdd.rdd, tableName, (t:T) => f.call(t), autoFlush)
   }
+
   
   /**
    * A simple abstraction over the HBaseContext.streamMapPartition method.
@@ -157,7 +150,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * It allow addition support for a user to take a JavaDStream and
    * generate puts and send them to HBase.
    *
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaDstream Original DStream with data to iterate over
@@ -176,12 +169,13 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
         autoFlush)
   }
 
+
   /**
    * A simple abstraction over the HBaseContext.foreachPartition method.
    *
    * It allow addition support for a user to take RDD
    * and generate checkAndPuts and send them to HBase.
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaRdd       Original RDD with data to iterate over
@@ -204,7 +198,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * It allow addition support for a user to take a JavaRDD and
    * generate increments and send them to HBase.
    *
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaRdd   Original JavaRDD with data to iterate over
@@ -224,7 +218,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * It allow addition support for a user to take a JavaRDD and 
    * generate delete and send them to HBase.  
    * 
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaRdd   Original JavaRDD with data to iterate over
@@ -244,7 +238,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * It allow addition support for a user to take a DStream and
    * generate Increments and send them to HBase.
    *
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaDstream Original JavaDStream with data to iterate over
@@ -268,7 +262,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * It allow addition support for a user to take a JavaDStream and
    * generate Delete and send them to HBase.
    *
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaDstream Original DStream with data to iterate over
@@ -292,7 +286,7 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
    * It allow addition support for a user to take a JavaDStream and
    * generate CheckAndDelete and send them to HBase.
    *
-   * The complexity of managing the HConnection is
+   * The complexity of managing the Connection is
    * removed from the developer
    *
    * @param javaDstream    Original JavaDStream with data to iterate over

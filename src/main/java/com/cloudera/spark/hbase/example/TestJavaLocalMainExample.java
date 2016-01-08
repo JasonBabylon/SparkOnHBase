@@ -1,139 +1,134 @@
 package com.cloudera.spark.hbase.example;
 
+import com.cloudera.spark.hbase.JavaHBaseContext;
+import com.google.common.io.Files;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.VoidFunction;
+import org.junit.After;
+import scala.Tuple2;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.HConnection;
-import org.apache.hadoop.hbase.client.HTableInterface;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.VoidFunction;
-import com.cloudera.spark.hbase.JavaHBaseContext;
-import org.junit.After;
-
-import scala.Tuple2;
-
-import com.google.common.io.Files;
-
 public class TestJavaLocalMainExample {
-  
-  private static transient JavaSparkContext jsc;
-  private static transient File tempDir;
-  static HBaseTestingUtility htu;
 
-  static String tableName = "t1";
-  static String columnFamily = "c";
-  
-  public static void main(String[] agrs) {
-    setUp();
-    
-    Configuration conf = htu.getConfiguration();
+    private static transient JavaSparkContext jsc;
+    static HBaseTestingUtility htu;
 
-    JavaHBaseContext hbaseContext = new JavaHBaseContext(jsc, conf);
-    
-    List<byte[]> list = new ArrayList<byte[]>();
-    list.add(Bytes.toBytes("1"));
-    list.add(Bytes.toBytes("2"));
-    list.add(Bytes.toBytes("3"));
-    list.add(Bytes.toBytes("4"));
-    list.add(Bytes.toBytes("5"));
+    static String tableName = "t1";
+    static String columnFamily = "c";
 
-    JavaRDD<byte[]> rdd = jsc.parallelize(list);
- 
+    public static void main(String[] agrs) {
+        setUp();
 
-    hbaseContext.foreachPartition(rdd,  new VoidFunction<Tuple2<Iterator<byte[]>, HConnection>>() {
+        Configuration conf = htu.getConfiguration();
+
+        JavaHBaseContext hbaseContext = new JavaHBaseContext(jsc, conf);
+
+        List<byte[]> list = new ArrayList<>();
+        list.add(Bytes.toBytes("1"));
+        list.add(Bytes.toBytes("2"));
+        list.add(Bytes.toBytes("3"));
+        list.add(Bytes.toBytes("4"));
+        list.add(Bytes.toBytes("5"));
+
+        JavaRDD<byte[]> rdd = jsc.parallelize(list);
 
 
-      public void call(Tuple2<Iterator<byte[]>, HConnection> t)
-              throws Exception {
-        HTableInterface table1 = t._2().getTable(Bytes.toBytes("Foo"));
+        hbaseContext.foreachPartition(rdd, new VoidFunction<Tuple2<Iterator<byte[]>, Connection>>() {
 
-        Iterator<byte[]> it = t._1();
 
-        while (it.hasNext()) {
-          byte[] b = it.next();
-          Result r = table1.get(new Get(b));
-          if (r.getExists()) {
-            table1.put(new Put(b));
-          }
-        }
-      }
-    });
+            public void call(Tuple2<Iterator<byte[]>, Connection> t)
+                    throws Exception {
 
-    //This is me
-    hbaseContext.foreach(rdd, new VoidFunction<Tuple2<byte[], HConnection>>() {
+                Table table1 = t._2().getTable(TableName.valueOf("Foo"));
 
-      public void call(Tuple2<byte[], HConnection> t)
-          throws Exception {
-        HTableInterface table1 = t._2().getTable(Bytes.toBytes("Foo"));
-        
-        byte[] b = t._1();
-        Result r = table1.get(new Get(b));
-        if (r.getExists()) {
-          table1.put(new Put(b));
-        }
-        
-      }
-    });
-    
-    tearDown();
-  }
-  
-  public static void setUp() {
-    jsc = new JavaSparkContext("local", "JavaHBaseContextSuite");
-    jsc.addJar("spark.jar");
-    
-    tempDir = Files.createTempDir();
-    tempDir.deleteOnExit();
+                Iterator<byte[]> it = t._1();
 
-    htu = HBaseTestingUtility.createLocalHTU();
-    try {
-      System.out.println("cleaning up test dir");
+                while (it.hasNext()) {
+                    byte[] b = it.next();
+                    Result r = table1.get(new Get(b));
+                    if (r.getExists()) {
+                        table1.put(new Put(b));
+                    }
+                }
+            }
+        });
 
-      htu.cleanupTestDir();
+        //This is me
+        hbaseContext.foreach(rdd, new VoidFunction<Tuple2<byte[], Connection>>() {
 
-      System.out.println("starting minicluster");
+            public void call(Tuple2<byte[], Connection> t)
+                    throws Exception {
+                Table table1 = t._2().getTable(TableName.valueOf("Foo"));
 
-      htu.startMiniZKCluster();
-      htu.startMiniHBaseCluster(1, 1);
+                byte[] b = t._1();
+                Result r = table1.get(new Get(b));
+                if (r.getExists()) {
+                    table1.put(new Put(b));
+                }
 
-      System.out.println(" - minicluster started");
+            }
+        });
 
-      try {
-        htu.deleteTable(Bytes.toBytes(tableName));
-      } catch (Exception e) {
-        System.out.println(" - no table " + tableName + " found");
-      }
-
-      System.out.println(" - creating table " + tableName);
-      htu.createTable(Bytes.toBytes(tableName), Bytes.toBytes(columnFamily));
-      System.out.println(" - created table");
-    } catch (Exception e1) {
-      throw new RuntimeException(e1);
+        tearDown();
     }
-  }
 
-  @After
-  public static void tearDown() {
-    try {
-      htu.deleteTable(Bytes.toBytes(tableName));
-      System.out.println("shuting down minicluster");
-      htu.shutdownMiniHBaseCluster();
-      htu.shutdownMiniZKCluster();
-      System.out.println(" - minicluster shut down");
-      htu.cleanupTestDir();
-    } catch (Exception e) {
-      throw new RuntimeException(e);
+    public static void setUp() {
+        jsc = new JavaSparkContext("local", "JavaHBaseContextSuite");
+        jsc.addJar("spark.jar");
+
+        File tempDir = Files.createTempDir();
+        tempDir.deleteOnExit();
+
+        htu = HBaseTestingUtility.createLocalHTU();
+        try {
+            System.out.println("cleaning up test dir");
+
+            htu.cleanupTestDir();
+
+            System.out.println("starting minicluster");
+
+            htu.startMiniZKCluster();
+            htu.startMiniHBaseCluster(1, 1);
+
+            System.out.println(" - minicluster started");
+
+            try {
+                htu.deleteTable(Bytes.toBytes(tableName));
+            } catch (Exception e) {
+                System.out.println(" - no table " + tableName + " found");
+            }
+
+            System.out.println(" - creating table " + tableName);
+            htu.createTable(Bytes.toBytes(tableName), Bytes.toBytes(columnFamily));
+            System.out.println(" - created table");
+        } catch (Exception e1) {
+            throw new RuntimeException(e1);
+        }
     }
-    jsc.stop();
-    jsc = null;
-  }
+
+    @After
+    public static void tearDown() {
+        try {
+            htu.deleteTable(Bytes.toBytes(tableName));
+            System.out.println("shuting down minicluster");
+            htu.shutdownMiniHBaseCluster();
+            htu.shutdownMiniZKCluster();
+            System.out.println(" - minicluster shut down");
+            htu.cleanupTestDir();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        jsc.stop();
+        jsc = null;
+    }
 }

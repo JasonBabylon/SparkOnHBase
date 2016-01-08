@@ -1,19 +1,12 @@
 package com.cloudera.spark.hbase
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{Path, FileSystem}
-import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FunSuite}
+import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.hbase.client._
+import org.apache.hadoop.hbase.util.Bytes
+import org.apache.hadoop.hbase.{CellUtil, HBaseTestingUtility, TableName}
 import org.apache.spark._
-import org.apache.hadoop.hbase.HBaseTestingUtility
-import org.apache.hadoop.hbase.util.Bytes 
-import org.apache.hadoop.hbase.client.Scan
-import org.apache.hadoop.hbase.client.Get
-import org.apache.hadoop.hbase.client.Put
-import org.apache.hadoop.hbase.client.HConnectionManager
-import org.apache.hadoop.hbase.client.Increment
-import org.apache.hadoop.hbase.client.Delete
-import org.apache.hadoop.hbase.client.Result
-import com.cloudera.spark.hbase.HBaseContext
+import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, FunSuite}
 
 
 class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll { // with LocalSparkContext {
@@ -23,29 +16,28 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
   val tableName = "t1"
   val columnFamily = "c"
 
-  var sc:SparkContext = null;
+  var sc:SparkContext = null
 
   override def beforeAll() {
     htu = HBaseTestingUtility.createLocalHTU()
     
     htu.cleanupTestDir()
     println("starting minicluster")
-    htu.startMiniZKCluster();
-    htu.startMiniHBaseCluster(1, 1);
+    htu.startMiniZKCluster()
+    htu.startMiniHBaseCluster(1, 1)
     println(" - minicluster started")
     try {
       htu.deleteTable(Bytes.toBytes(tableName))
     } catch {
-      case e: Exception => {
+      case e: Exception =>
         println(" - no table " + tableName + " found")
-      }
     }
     println(" - creating table " + tableName)
     htu.createTable(Bytes.toBytes(tableName), Bytes.toBytes(columnFamily))
     println(" - created table")
 
-    val sparkConfig = new SparkConf();
-    sparkConfig.set("spark.broadcast.compress", "false");
+    val sparkConfig = new SparkConf()
+    sparkConfig.set("spark.broadcast.compress", "false")
     sc = new SparkContext("local", "test", sparkConfig)
   }
 
@@ -57,7 +49,7 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
     println(" - minicluster shut down")
     htu.cleanupTestDir()
 
-    sc.stop();
+    sc.stop()
   }
 
   test("bulkput to test HBase client") {
@@ -70,43 +62,57 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
       (Bytes.toBytes("4"), Array((Bytes.toBytes(columnFamily), Bytes.toBytes("d"), Bytes.toBytes("foo")))),
       (Bytes.toBytes("5"), Array((Bytes.toBytes(columnFamily), Bytes.toBytes("e"), Bytes.toBytes("bar"))))))
 
-    val hbaseContext = new HBaseContext(sc, config);
+    val hbaseContext = new HBaseContext(sc, config)
 
     hbaseContext.bulkPut[(Array[Byte], Array[(Array[Byte], Array[Byte], Array[Byte])])](rdd,
       tableName,
       (putRecord) => {
 
         val put = new Put(putRecord._1)
-        putRecord._2.foreach((putValue) => put.add(putValue._1, putValue._2, putValue._3))
+        putRecord._2.foreach((putValue) => put.addColumn(putValue._1, putValue._2, putValue._3))
         put
 
       },
-      true);
+      autoFlush = true)
 
-    val connection = HConnectionManager.createConnection(config)
-    val htable = connection.getTable(Bytes.toBytes("t1"))
+    val connection = ConnectionFactory.createConnection(config)
+    val table = connection.getTable(TableName.valueOf("t1"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("1"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("a")).
-      getValue()).equals("foo1"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("1")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("a"))))
+      .equals("foo1"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("2"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("b")).
-      getValue()).equals("foo2"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("2")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("b"))))
+      .equals("foo2"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("3"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("c")).
-      getValue()).equals("foo3"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("3")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("c"))))
+      .equals("foo3"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("4"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("d")).
-      getValue()).equals("foo"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("4")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("d"))))
+      .equals("foo"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("5"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("e")).
-      getValue()).equals("bar"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("5")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("e"))))
+      .equals("bar"))
 
-    
   }
 
   test("bulkput to test HBase client fs storage of Config") {
@@ -119,50 +125,63 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
       (Bytes.toBytes("4x"), Array((Bytes.toBytes(columnFamily), Bytes.toBytes("d"), Bytes.toBytes("foo")))),
       (Bytes.toBytes("5x"), Array((Bytes.toBytes(columnFamily), Bytes.toBytes("e"), Bytes.toBytes("bar"))))))
 
-    val tmpPath = "tmp/HBaseConfig"
+    val tmpPath = "src/test/resources/HBaseConfig"
 
     val fs = FileSystem.newInstance(new Configuration())
     if (fs.exists(new Path(tmpPath))) {
       fs.delete(new Path(tmpPath), false)
     }
 
-    val hbaseContext = new HBaseContext(sc, config, tmpPath);
+    val hbaseContext = new HBaseContext(sc, config, tmpPath)
 
     hbaseContext.bulkPut[(Array[Byte], Array[(Array[Byte], Array[Byte], Array[Byte])])](rdd,
       tableName,
       (putRecord) => {
 
         val put = new Put(putRecord._1)
-        putRecord._2.foreach((putValue) => put.add(putValue._1, putValue._2, putValue._3))
+        putRecord._2.foreach((putValue) => put.addColumn(putValue._1, putValue._2, putValue._3))
         put
 
       },
-      true);
+      autoFlush = true)
 
-    val connection = HConnectionManager.createConnection(config)
-    val htable = connection.getTable(Bytes.toBytes("t1"))
+    val connection = ConnectionFactory.createConnection(config)
+    val table = connection.getTable(TableName.valueOf("t1"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("1x"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("a")).
-      getValue()).equals("foo1"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("1x")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("a"))))
+      .equals("foo1"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("2x"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("b")).
-      getValue()).equals("foo2"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("2x")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("b"))))
+      .equals("foo2"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("3x"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("c")).
-      getValue()).equals("foo3"))
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("3x")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("c"))))
+      .equals("foo3"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("4x"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("d")).
-      getValue()).equals("foo"))
+    assert(Bytes.toString(
+            CellUtil.cloneValue(
+              table.get(
+                new Get(Bytes.toBytes("4x")))
+                .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("d"))))
+          .equals("foo"))
 
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("5x"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("e")).
-      getValue()).equals("bar"))
-
-
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("5x")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("e"))))
+      .equals("bar"))
   }
 
   test("bulkIncrement to test HBase client") {
@@ -175,7 +194,7 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
       (Bytes.toBytes("4"), Array((Bytes.toBytes(columnFamily), Bytes.toBytes("counter"), 4L))),
       (Bytes.toBytes("5"), Array((Bytes.toBytes(columnFamily), Bytes.toBytes("counter"), 5L)))))
 
-    val hbaseContext = new HBaseContext(sc, config);
+    val hbaseContext = new HBaseContext(sc, config)
 
     hbaseContext.bulkIncrement[(Array[Byte], Array[(Array[Byte], Array[Byte], Long)])](rdd,
       tableName,
@@ -185,7 +204,7 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
           increment.addColumn(incrementValue._1, incrementValue._2, incrementValue._3))
         increment
       },
-      4);
+      4)
 
     hbaseContext.bulkIncrement[(Array[Byte], Array[(Array[Byte], Array[Byte], Long)])](rdd,
       tableName,
@@ -195,96 +214,113 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
           increment.addColumn(incrementValue._1, incrementValue._2, incrementValue._3))
         increment
       },
-      4);
+      4)
 
-    val connection = HConnectionManager.createConnection(config)
-    val htable = connection.getTable(Bytes.toBytes("t1"))
+    val connection = ConnectionFactory.createConnection(config)
+    val table = connection.getTable(TableName.valueOf("t1"))
 
-    assert(Bytes.toLong(htable.get(new Get(Bytes.toBytes("1"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("counter")).
-      getValue()) == 2L)
+    assert(Bytes.toLong(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("1")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("counter"))))
+      .equals(2L))
 
-    assert(Bytes.toLong(htable.get(new Get(Bytes.toBytes("2"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("counter")).
-      getValue()) == 4L)
+    assert(Bytes.toLong(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("2")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("counter"))))
+      .equals(4L))
 
-    assert(Bytes.toLong(htable.get(new Get(Bytes.toBytes("3"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("counter")).
-      getValue()) == 6L)
+    assert(Bytes.toLong(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("3")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("counter"))))
+      .equals(6L))
 
-    assert(Bytes.toLong(htable.get(new Get(Bytes.toBytes("4"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("counter")).
-      getValue()) == 8L)
+    assert(Bytes.toLong(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("4")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("counter"))))
+      .equals(8L))
 
-    assert(Bytes.toLong(htable.get(new Get(Bytes.toBytes("5"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("counter")).
-      getValue()) == 10L)
-    
+    assert(Bytes.toLong(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("5")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("counter"))))
+      .equals(10L))
+
   }
 
   test("bulkDelete to test HBase client") {
     val config = htu.getConfiguration
 
-    val connection = HConnectionManager.createConnection(config)
-    val htable = connection.getTable(Bytes.toBytes("t1"))
+    val connection = ConnectionFactory.createConnection(config)
+    val table = connection.getTable(TableName.valueOf("t1"))
 
     var put = new Put(Bytes.toBytes("delete1"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo1"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo1"))
+    table.put(put)
     put = new Put(Bytes.toBytes("delete2"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo2"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo2"))
+    table.put(put)
     put = new Put(Bytes.toBytes("delete3"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
+    table.put(put)
 
     val rdd = sc.parallelize(Array(
-      (Bytes.toBytes("delete1")),
-      (Bytes.toBytes("delete3"))))
+      Bytes.toBytes("delete1"),
+      Bytes.toBytes("delete3")))
 
-    val hbaseContext = new HBaseContext(sc, config);
+    val hbaseContext = new HBaseContext(sc, config)
 
     hbaseContext.bulkDelete[Array[Byte]](rdd,
       tableName,
       putRecord => new Delete(putRecord),
-      4);
+      4)
 
-    assert(htable.get(new Get(Bytes.toBytes("delete1"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("a")) == null)
-    assert(htable.get(new Get(Bytes.toBytes("delete3"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("a")) == null)
-    assert(Bytes.toString(htable.get(new Get(Bytes.toBytes("delete2"))).
-      getColumnLatest(Bytes.toBytes(columnFamily), Bytes.toBytes("a")).
-      getValue()).equals("foo2"))
-      
+    assert(table.get(new Get(Bytes.toBytes("delete1"))).
+      getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("a")) == null)
+    assert(table.get(new Get(Bytes.toBytes("delete3"))).
+      getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("a")) == null)
+
+    assert(Bytes.toString(
+      CellUtil.cloneValue(
+        table.get(
+          new Get(Bytes.toBytes("delete2")))
+          .getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes("a"))))
+      .equals("foo2"))
   }
 
   test("bulkGet to test HBase client") {
     val config = htu.getConfiguration
 
-    config.set("spark.broadcast.compress", "false");
+    config.set("spark.broadcast.compress", "false")
 
-    val connection = HConnectionManager.createConnection(config)
-    val htable = connection.getTable(Bytes.toBytes("t1"))
+    val connection = ConnectionFactory.createConnection(config)
+    val table = connection.getTable(TableName.valueOf("t1"))
 
     var put = new Put(Bytes.toBytes("get1"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo1"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo1"))
+    table.put(put)
     put = new Put(Bytes.toBytes("get2"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo2"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo2"))
+    table.put(put)
     put = new Put(Bytes.toBytes("get3"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
+    table.put(put)
 
     val rdd = sc.parallelize(Array(
-      (Bytes.toBytes("get1")),
-      (Bytes.toBytes("get2")),
-      (Bytes.toBytes("get3")),
-      (Bytes.toBytes("get4"))))
+      Bytes.toBytes("get1"),
+      Bytes.toBytes("get2"),
+      Bytes.toBytes("get3"),
+      Bytes.toBytes("get4")))
 
-
-    val hbaseContext = new HBaseContext(sc, config);
+    val hbaseContext = new HBaseContext(sc, config)
 
     val getRdd = hbaseContext.bulkGet[Array[Byte], Object](
       tableName,
@@ -294,19 +330,27 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
         new Get(record)
       },
       (result: Result) => {
-        if (result.list() != null) {
-          val it = result.list().iterator()
+        if (result.listCells() != null) {
+          val it = result.listCells().iterator()
           val B = new StringBuilder
-  
-          B.append(Bytes.toString(result.getRow()) + ":")
-  
-          while (it.hasNext()) {
+
+          B.append(Bytes.toString(result.getRow) + ":")
+
+          while (it.hasNext) {
             val kv = it.next()
-            val q = Bytes.toString(kv.getQualifier())
+            val q = Bytes.toString(CellUtil.cloneQualifier(kv))
             if (q.equals("counter")) {
-              B.append("(" + Bytes.toString(kv.getQualifier()) + "," + Bytes.toLong(kv.getValue()) + ")")
+              B.append("(")
+                .append(Bytes.toString(CellUtil.cloneQualifier(kv)))
+                .append(",")
+                .append(Bytes.toLong(CellUtil.cloneValue(kv)))
+                .append(")")
             } else {
-              B.append("(" + Bytes.toString(kv.getQualifier()) + "," + Bytes.toString(kv.getValue()) + ")")
+              B.append("(")
+              .append(Bytes.toString(CellUtil.cloneQualifier(kv)))
+              .append(",")
+              .append(Bytes.toString(CellUtil.cloneValue(kv)))
+              .append(")")
             }
           }
           "" + B.toString
@@ -315,10 +359,10 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
         }
       })
 
-      
-    val getArray = getRdd.collect
-    
-    getArray.foreach(f => println(f));
+
+    val getArray = getRdd.collect()
+
+    getArray.foreach(f => println(f))
 
     assert(getArray.length == 4)
     assert(getArray.contains("get1:(a,foo1)"))
@@ -326,41 +370,41 @@ class HBaseContextSuite extends FunSuite with BeforeAndAfterEach with BeforeAndA
     assert(getArray.contains("get3:(a,foo3)"))
 
   }
-  
+
   test("distributedScan to test HBase client") {
     val config = htu.getConfiguration
 
-    config.set("spark.broadcast.compress", "false");
+    config.set("spark.broadcast.compress", "false")
 
-    val connection = HConnectionManager.createConnection(config)
-    val htable = connection.getTable(Bytes.toBytes("t1"))
+    val connection = ConnectionFactory.createConnection(config)
+    val table = connection.getTable(TableName.valueOf("t1"))
 
     var put = new Put(Bytes.toBytes("scan1"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo1"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo1"))
+    table.put(put)
     put = new Put(Bytes.toBytes("scan2"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo2"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo2"))
+    table.put(put)
     put = new Put(Bytes.toBytes("scan3"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
+    table.put(put)
     put = new Put(Bytes.toBytes("scan4"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
+    table.put(put)
     put = new Put(Bytes.toBytes("scan5"))
-    put.add(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
-    htable.put(put)
+    put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes("a"), Bytes.toBytes("foo3"))
+    table.put(put)
 
-    var scan = new Scan()
+    val scan = new Scan()
     scan.setCaching(100)
     scan.setStartRow(Bytes.toBytes("scan2"))
     scan.setStopRow(Bytes.toBytes("scan4_"))
 
-    val hbaseContext = new HBaseContext(sc, config);
+    val hbaseContext = new HBaseContext(sc, config)
 
     val scanRdd = hbaseContext.hbaseRDD(tableName, scan)
     
-    val scanList = scanRdd.collect
+    val scanList = scanRdd.collect()
     
     //assert(scanList.length == 3)
     

@@ -3,7 +3,7 @@
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
+ * (the "License") you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
@@ -17,22 +17,20 @@
 
 package com.cloudera.spark.hbase.example
 
-import org.apache.spark.SparkContext
-import org.apache.hadoop.hbase.HBaseConfiguration
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.hbase.util.Bytes
-import org.apache.hadoop.hbase.client.Put
-import org.apache.hadoop.mapred.TextInputFormat
-import org.apache.hadoop.io.LongWritable
-import org.apache.hadoop.io.Text
-import org.apache.spark.SparkConf
 import com.cloudera.spark.hbase.HBaseContext
+import org.apache.hadoop.fs.Path
+import org.apache.hadoop.hbase.HBaseConfiguration
+import org.apache.hadoop.hbase.client.Put
+import org.apache.hadoop.hbase.util.Bytes
+import org.apache.hadoop.io.{LongWritable, Text}
+import org.apache.hadoop.mapred.TextInputFormat
+import org.apache.spark.{SparkConf, SparkContext}
 
 object HBaseBulkPutExampleFromFile {
   def main(args: Array[String]) {
 	  if (args.length == 0) {
-    		System.out.println("HBaseBulkPutExampleFromFile {tableName} {columnFamily} {inputFile}");
-    		return;
+    		System.out.println("HBaseBulkPutExampleFromFile {tableName} {columnFamily} {inputFile}")
+    		return
       }
     	
       val tableName = args(0)
@@ -43,29 +41,29 @@ object HBaseBulkPutExampleFromFile {
           tableName + " " + columnFamily + " " + inputFile)
       val sc = new SparkContext(sparkConf)
       
-      var rdd = sc.hadoopFile(
+      val rdd = sc.hadoopFile(
           inputFile, 
           classOf[TextInputFormat], 
           classOf[LongWritable], 
           classOf[Text]).map(v => {
-            System.out.println("reading-" + v._2.toString())
-            v._2.toString()
+            System.out.println("reading-" + v._2.toString)
+            v._2.toString
           })
 
-      val conf = HBaseConfiguration.create();
-	    conf.addResource(new Path("/etc/hbase/conf/core-site.xml"));
-	    conf.addResource(new Path("/etc/hbase/conf/hdfs-site.xml"));
-	    conf.addResource(new Path("/etc/hbase/conf/hbase-site.xml"));
+      val conf = HBaseConfiguration.create()
+	    conf.addResource(new Path("/etc/hbase/conf/core-site.xml"))
+	    conf.addResource(new Path("/etc/hbase/conf/hdfs-site.xml"))
+	    conf.addResource(new Path("/etc/hbase/conf/hbase-site.xml"))
 
-    val hbaseContext = new HBaseContext(sc, conf);
+    val hbaseContext = new HBaseContext(sc, conf)
       hbaseContext.bulkPut[String](rdd,
           tableName,
           (putRecord) => {
             System.out.println("hbase-" + putRecord)
             val put = new Put(Bytes.toBytes("Value- " + putRecord))
-            put.add(Bytes.toBytes("c"), Bytes.toBytes("1"), Bytes.toBytes(putRecord.length()))
+            put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("1"), Bytes.toBytes(putRecord.length()))
             put
           },
-          true);
+          autoFlush = true)
 	}
 }

@@ -1,8 +1,6 @@
 package com.cloudera.spark.hbase.example;
 
-import java.util.ArrayList;
-import java.util.List;
-
+import com.cloudera.spark.hbase.JavaHBaseContext;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
@@ -11,7 +9,9 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
-import com.cloudera.spark.hbase.JavaHBaseContext;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class JavaHBaseBulkIncrementExample {
   public static void main(String args[]) {
@@ -28,7 +28,7 @@ public class JavaHBaseBulkIncrementExample {
         "JavaHBaseBulkIncrementExample");
     jsc.addJar("spark.jar");
 
-    List<String> list = new ArrayList<String>();
+    List<String> list = new ArrayList<>();
     list.add("1," + columnFamily + ",counter,1");
     list.add("2," + columnFamily + ",counter,2");
     list.add("3," + columnFamily + ",counter,3");

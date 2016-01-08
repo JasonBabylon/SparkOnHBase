@@ -3,7 +3,7 @@
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
+ * (the "License") you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
@@ -17,26 +17,22 @@
 
 package com.cloudera.spark.hbase.example
 
-import org.apache.spark.SparkContext
-import org.apache.hadoop.hbase.HBaseConfiguration
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.hbase.util.Bytes
-import org.apache.hadoop.hbase.client.Get
-import org.apache.hadoop.hbase.client.Result
-import org.apache.hadoop.hbase.client.Scan
-import java.util.ArrayList
-import org.apache.spark.SparkConf
 import com.cloudera.spark.hbase.HBaseContext
+import org.apache.hadoop.fs.Path
+import org.apache.hadoop.hbase.HBaseConfiguration
+import org.apache.hadoop.hbase.client.Scan
+import org.apache.hadoop.hbase.util.Bytes
+import org.apache.spark.{SparkConf, SparkContext}
 
 
 object HBaseScanRDDExample {
   def main(args: Array[String]) {
     if (args.length == 0) {
       System.out.println("GenerateGraphs {tableName}")
-      return ;
+      return 
     }
 
-    val tableName = args(0);
+    val tableName = args(0)
 
     val sparkConf = new SparkConf().setAppName("HBaseDistributedScanExample " + tableName )
     val sc = new SparkContext(sparkConf)
@@ -45,16 +41,16 @@ object HBaseScanRDDExample {
     conf.addResource(new Path("/etc/hbase/conf/core-site.xml"))
     conf.addResource(new Path("/etc/hbase/conf/hbase-site.xml"))
 
-    var scan = new Scan()
+    val scan = new Scan()
     scan.setCaching(100)
 
-    val hbaseContext = new HBaseContext(sc, conf);
+    val hbaseContext = new HBaseContext(sc, conf)
 
-    var getRdd = hbaseContext.hbaseScanRDD( tableName, scan)
+    val getRdd = hbaseContext.hbaseScanRDD(tableName, scan)
     println(" --- abc")
     getRdd.foreach(v => println(Bytes.toString(v._1)))
     println(" --- def")
-    getRdd.collect.foreach(v => println(Bytes.toString(v._1)))
+    getRdd.collect().foreach(v => println(Bytes.toString(v._1)))
     println(" --- qwe")
     
   }

@@ -1,29 +1,19 @@
 package com.cloudera.spark.hbase
 
-import org.apache.spark.deploy.SparkHadoopUtil
-import org.apache.spark.{ SparkContext, TaskContext }
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.SerializableWritable
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.security.Credentials
-import org.apache.spark.rdd.RDD
-import org.apache.spark.Partition
-import org.apache.spark.InterruptibleIterator
-import org.apache.hadoop.hbase.mapreduce.TableInputFormat
-import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil
-import org.apache.hadoop.hbase.client.Scan
-import org.apache.hadoop.mapreduce.Job
-import org.apache.spark.SparkHadoopMapReduceUtilExtended
-import org.apache.spark.Logging
-import org.apache.hadoop.mapreduce.JobID
-import org.apache.hadoop.io.Writable
-import org.apache.hadoop.mapreduce.InputSplit
 import java.text.SimpleDateFormat
+import java.util
 import java.util.Date
-import java.util.ArrayList
+
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.hbase.client.Scan
+import org.apache.hadoop.hbase.mapreduce.{IdentityTableMapper, TableInputFormat, TableMapReduceUtil}
+import org.apache.hadoop.io.Writable
+import org.apache.hadoop.mapreduce.{InputSplit, Job, JobID}
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod
-import org.apache.hadoop.hbase.mapreduce.IdentityTableMapper
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.rdd.RDD
+import org.apache.spark.{InterruptibleIterator, Logging, Partition, SerializableWritable, SparkContext, SparkHadoopMapReduceUtilExtended, TaskContext}
 
 class HBaseScanRDD(sc: SparkContext,
                    @transient tableName: String,
@@ -34,18 +24,19 @@ class HBaseScanRDD(sc: SparkContext,
   with Logging {
 
   ///
-  @transient val jobTransient = new Job(configBroadcast.value.value, "ExampleRead");
+  @transient val jobTransient = new Job(configBroadcast.value.value, "ExampleRead")
   TableMapReduceUtil.initTableMapperJob(
     tableName, // input HBase table name
     scan, // Scan instance to control CF and attribute selection
     classOf[IdentityTableMapper], // mapper
     null, // mapper output key
     null, // mapper output value
-    jobTransient);
+    jobTransient)
 
-  @transient val jobConfigurationTrans = jobTransient.getConfiguration()
+  @transient val jobConfigurationTrans = jobTransient.getConfiguration
   jobConfigurationTrans.set(TableInputFormat.INPUT_TABLE, tableName)
   val jobConfigBroadcast = sc.broadcast(new SerializableWritable(jobConfigurationTrans))
+  val jobCredentialsBroadcast = sc.broadcast(new SerializableWritable(jobTransient.getCredentials))
   ////
 
   private val jobTrackerId: String = {
@@ -57,7 +48,7 @@ class HBaseScanRDD(sc: SparkContext,
 
   override def getPartitions: Array[Partition] = {
 
-    addCreds
+    addCreds()
 
     val tableInputFormat = new TableInputFormat
     tableInputFormat.setConf(jobConfigBroadcast.value.value)
@@ -74,11 +65,11 @@ class HBaseScanRDD(sc: SparkContext,
 
   override def compute(theSplit: Partition, context: TaskContext): InterruptibleIterator[(Array[Byte], java.util.List[(Array[Byte], Array[Byte], Array[Byte])])] = {
 
-    addCreds
+    addCreds()
 
     val iter = new Iterator[(Array[Byte], java.util.List[(Array[Byte], Array[Byte], Array[Byte])])] {
 
-      addCreds
+      addCreds()
 
       val split = theSplit.asInstanceOf[NewHadoopPartition]
       logInfo("Input split: " + split.serializableHadoopSplit)
@@ -90,11 +81,13 @@ class HBaseScanRDD(sc: SparkContext,
       format.setConf(conf)
 
       val reader = format.createRecordReader(
-        split.serializableHadoopSplit.value, hadoopAttemptContext)
-      reader.initialize(split.serializableHadoopSplit.value, hadoopAttemptContext)
+          split.serializableHadoopSplit.value,
+          hadoopAttemptContext)
+      reader.initialize(split.serializableHadoopSplit.value,
+                        hadoopAttemptContext)
 
       // Register an on-task-completion callback to close the input stream.
-      context.addOnCompleteCallback(() => close())
+      context.addTaskCompletionListener((context) => close())
       var havePair = false
       var finished = false
 
@@ -112,13 +105,13 @@ class HBaseScanRDD(sc: SparkContext,
         }
         havePair = false
 
-        val it = reader.getCurrentValue.list().iterator()
+        val it = reader.getCurrentValue.listCells().iterator()
 
-        val list = new ArrayList[(Array[Byte], Array[Byte], Array[Byte])]()
+        val list = new util.ArrayList[(Array[Byte], Array[Byte], Array[Byte])]()
 
-        while (it.hasNext()) {
+        while (it.hasNext) {
           val kv = it.next()
-          list.add((kv.getFamily(), kv.getQualifier(), kv.getValue()))
+          list.add((kv.getFamilyArray, kv.getQualifierArray, kv.getValueArray))
         }
         (reader.getCurrentKey.copyBytes(), list)
       }
@@ -134,13 +127,12 @@ class HBaseScanRDD(sc: SparkContext,
     new InterruptibleIterator(context, iter)
   }
 
-  def addCreds {
-    val creds = SparkHadoopUtil.get.getCurrentUserCredentials()
+  def addCreds() {
+    @transient val ugi = UserGroupInformation.getCurrentUser
 
-    val ugi = UserGroupInformation.getCurrentUser();
-    ugi.addCredentials(creds)
     // specify that this is a proxy user 
     ugi.setAuthenticationMethod(AuthenticationMethod.PROXY)
+    ugi.addCredentials(jobCredentialsBroadcast.value.value)
   }
 
   private[spark] class NewHadoopPartition(
