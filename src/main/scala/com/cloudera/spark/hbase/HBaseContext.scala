@@ -198,6 +198,29 @@ class HBaseContext(@transient sc: SparkContext,
         }))
   }
 
+  /**
+   * Same as bulkPut, except allow a list of put objects.
+   *
+   * @param rdd       Original RDD with data to iterate over
+   * @param tableName The name of the table to put into
+   * @param f         Function to convert a value in the RDD to a HBase Put
+   * @param autoFlush If autoFlush should be turned on
+   * @tparam T        List of putobjects for this table.
+   */
+  def bulkPuts[T](rdd: RDD[T], tableName: String, f: (T) => java.util.List[Put], autoFlush: Boolean) {
+
+    rdd.foreachPartition(
+      it => hbaseForeachPartition[T](
+        broadcastedConf,
+        it,
+        (iterator, connection) => {
+          val mutator = connection.getBufferedMutator(TableName.valueOf(tableName))
+
+          iterator.foreach(T => mutator.mutate(f(T)))
+          mutator.close()
+        }))
+  }
+
   def applyCreds[T] (configBroadcast: Broadcast[SerializableWritable[Configuration]]){
 
 
@@ -251,6 +274,25 @@ class HBaseContext(@transient sc: SparkContext,
 
     dstream.foreachRDD((rdd, time) => {
       bulkPut(rdd, tableName, f, autoFlush)
+    })
+  }
+
+  /**
+   * Same as streamBulkPut, except this allows a list of puts.
+   *
+   * @param dstream    Original DStream with data to iterate over
+   * @param tableName  The name of the table to put into
+   * @param f          Function to convert a value in
+   *                   the DStream to a HBase Put
+   * @param autoFlush  If autoFlush should be turned on
+   * @tparam T         List of put objects for this table
+   */
+  def streamBulkPuts[T](dstream: DStream[T],
+                       tableName: String,
+                       f: (T) => java.util.List[Put],
+                       autoFlush: Boolean) = {
+    dstream.foreachRDD((rdd, time) => {
+      bulkPuts(rdd, tableName, f, autoFlush)
     })
   }
 

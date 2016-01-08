@@ -143,6 +143,23 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
     hbc.bulkPut(javaRdd.rdd, tableName, (t:T) => f.call(t), autoFlush)
   }
 
+  /**
+   * Same as bulkPut, but allows a list of Puts
+   *
+   * @param javaRdd   Original JavaRDD with data to iterate over
+   * @param tableName The name of the table to put into
+   * @param f         Function to convert a value in the JavaRDD
+   *                  to a HBase Put
+   * @param autoFlush If autoFlush should be turned on
+   * @tparam T        List of puts for this table
+   */
+  def bulkPuts[T](javaRdd: JavaRDD[T],
+                 tableName: String,
+                 f: Function[(T), java.util.List[Put]],
+                 autoFlush: Boolean) {
+
+    hbc.bulkPuts(javaRdd.rdd, tableName, (t:T) => f.call(t), autoFlush)
+  }
   
   /**
    * A simple abstraction over the HBaseContext.streamMapPartition method.
@@ -169,6 +186,25 @@ class JavaHBaseContext(@transient jsc: JavaSparkContext,
         autoFlush)
   }
 
+  /**
+   * Same as streamBulkPut, but allows a list of Puts.
+   *
+   * @param javaDstream Original DStream with data to iterate over
+   * @param tableName   The name of the table to put into
+   * @param f           Function to convert a value in
+   *                    the JavaDStream to a HBase Put
+   * @param autoFlush         If autoFlush should be turned on
+   * @tparam T          List of puts for this table
+   */
+  def streamBulkPuts[T](javaDstream: JavaDStream[T],
+                       tableName: String,
+                       f: Function[T, java.util.List[Put]],
+                       autoFlush: Boolean) = {
+    hbc.streamBulkPuts(javaDstream.dstream,
+      tableName,
+      (t:T) => f.call(t),
+      autoFlush)
+  }
 
   /**
    * A simple abstraction over the HBaseContext.foreachPartition method.
